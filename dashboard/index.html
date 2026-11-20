@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartHorta | Dashboard</title>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1712; --card: #17221b; --line: #26362b; --text: #e8f0ea; --muted: #8fa596;
+    --green: #4cc38a; --red: #e5484d; --blue: #3e9bf0; --amber: #f5b544;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: "Segoe UI", Roboto, system-ui, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+           padding: 18px 24px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 22px; letter-spacing: .2px; }
+  h1 span { color: var(--green); }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+          background: var(--card); border: 1px solid var(--line); font-size: 13px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.bad { background: var(--red); }
+  main { max-width: 1150px; margin: 0 auto; padding: 22px; display: grid; gap: 16px;
+         grid-template-columns: repeat(12, 1fr); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .card h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--muted);
+             text-transform: uppercase; letter-spacing: .6px; }
+  .big { font-size: 40px; font-weight: 700; line-height: 1.1; }
+  .unit { font-size: 18px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+  .k3 { grid-column: span 3; } .k4 { grid-column: span 4; } .k6 { grid-column: span 6; }
+  .k8 { grid-column: span 8; } .k12 { grid-column: span 12; }
+  @media (max-width: 900px) { .k3, .k4, .k6, .k8 { grid-column: span 12; } }
+  .bar { position: relative; height: 12px; border-radius: 6px; background: #223127; margin-top: 12px; overflow: visible; }
+  .bar .fill { height: 100%; border-radius: 6px; background: var(--blue); width: 0%; transition: width .4s, background .4s; }
+  .bar .mark { position: absolute; top: -4px; width: 2px; height: 20px; background: var(--amber); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .state { font-size: 28px; font-weight: 700; }
+  .on { color: var(--blue); } .off { color: var(--muted); }
+  .alert { color: var(--red); } .good { color: var(--green); }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { border: 1px solid var(--line); background: #213026; color: var(--text); padding: 10px 14px;
+           border-radius: 10px; font-size: 14px; cursor: pointer; font-weight: 600; }
+  button:hover { filter: brightness(1.15); }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  button.danger { background: #3a1f22; border-color: #5a2a2e; }
+  button.ok { background: #1f3a2b; border-color: #2c5a41; }
+  input[type=range] { width: 100%; accent-color: var(--amber); }
+  .row { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+  .chartbox { position: relative; height: 280px; }
+  #log { font-family: Consolas, monospace; font-size: 12px; color: var(--muted); height: 150px; overflow: auto;
+         white-space: pre-wrap; margin: 0; }
+  .layers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  @media (max-width: 900px) { .layers { grid-template-columns: repeat(2, 1fr); } }
+  .layer { border: 1px dashed var(--line); border-radius: 10px; padding: 10px; font-size: 13px; }
+  .layer b { display: block; color: var(--green); margin-bottom: 4px; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 10px 0 24px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>🌱 Smart<span>Horta</span></h1>
+    <div class="sub">Monitoramento e irrigação inteligente · Kauã Zanela e Rafael Pereira da Silva</div>
+  </div>
+  <div class="pills">
+    <span class="pill"><span id="dotBroker" class="dot"></span><span id="txtBroker">Conectando ao broker…</span></span>
+    <span class="pill"><span id="dotEsp" class="dot"></span><span id="txtEsp">ESP32: aguardando</span></span>
+    <span class="pill">Última leitura: <b id="txtUltima">--</b></span>
+  </div>
+</header>
+
+<main>
+  <section class="card k4">
+    <h2>Umidade do solo</h2>
+    <div><span class="big" id="vSolo">--</span><span class="unit">%</span></div>
+    <div class="bar"><div class="fill" id="barSolo"></div><div class="mark" id="markLimite" style="left:40%"></div></div>
+    <div class="hint" id="txtSolo">Linha amarela = limite para irrigar</div>
+  </section>
+  <section class="card k4">
+    <h2>Temperatura do ar</h2>
+    <div><span class="big" id="vTemp">--</span><span class="unit">°C</span></div>
+    <div class="hint" id="txtSensorT">Sensor DHT22</div>
+  </section>
+  <section class="card k4">
+    <h2>Umidade do ar</h2>
+    <div><span class="big" id="vUmid">--</span><span class="unit">%</span></div>
+    <div class="hint" id="txtSensorU">Sensor DHT22</div>
+  </section>
+
+  <section class="card k8">
+    <h2>Histórico (últimos 2 minutos)</h2>
+    <div class="chartbox"><canvas id="grafico"></canvas></div>
+  </section>
+
+  <section class="card k4">
+    <h2>Bomba d'água</h2>
+    <div class="state off" id="vBomba">--</div>
+    <div class="hint">Modo: <b id="vModo">--</b></div>
+    <div class="btns" style="margin-top:14px">
+      <button class="ok" onclick="enviar('cmd/bomba','ON')">Ligar</button>
+      <button class="danger" onclick="enviar('cmd/bomba','OFF')">Desligar</button>
+      <button class="primary" onclick="enviar('cmd/bomba','AUTO')">Automático</button>
+    </div>
+    <div class="hint">Ligar/Desligar coloca o sistema em modo manual por até 2 min; depois ele volta sozinho ao automático.</div>
+
+    <h2 style="margin-top:22px">Limite de irrigação</h2>
+    <div class="row">
+      <input type="range" id="slLimite" min="10" max="90" value="40" oninput="lblLimite.textContent=this.value+'%'">
+      <b id="lblLimite" style="min-width:42px">40%</b>
+    </div>
+    <div class="row">
+      <button onclick="enviar('cmd/limite', slLimite.value)">Enviar limite</button>
+      <span class="hint" style="margin:0">Atual no ESP32: <b id="vLimite">--</b></span>
+    </div>
+  </section>
+
+  <section class="card k6">
+    <h2>Mensagens MQTT</h2>
+    <pre id="log"></pre>
+  </section>
+
+  <section class="card k6">
+    <h2>Camadas IoT do projeto</h2>
+    <div class="layers">
+      <div class="layer"><b>Percepção</b>DHT22 + sensor de umidade do solo (potenciômetro no Wokwi)</div>
+      <div class="layer"><b>Rede</b>Wi-Fi + MQTT sobre TLS (broker HiveMQ)</div>
+      <div class="layer"><b>Processamento</b>ESP32 decide irrigar, aciona relé, LEDs e buzzer</div>
+      <div class="layer"><b>Aplicação</b>Este dashboard: dados em tempo real e controle remoto</div>
+    </div>
+  </section>
+</main>
+<footer>Tópico base: <code id="txtTopico"></code> · broker.hivemq.com (WebSocket seguro/TLS) · ESP32 ligado há <b id="vUptime">--</b></footer>
+
+<script>
+  const BASE = "smarthorta/kz-rps-4793";
+  const URL_BROKER = "wss://broker.hivemq.com:8884/mqtt";
+  const MAX_PONTOS = 60;
+
+  const $ = id => document.getElementById(id);
+  $("txtTopico").textContent = BASE + "/#";
+
+  function log(msg) {
+    const hora = new Date().toLocaleTimeString("pt-BR");
+    const el = $("log");
+    el.textContent = `[${hora}] ${msg}\n` + el.textContent.split("\n").slice(0, 80).join("\n");
+  }
+
+  // ---------- Gráfico ----------
+  let grafico = null;
+  if (window.Chart) {
+    Chart.defaults.color = "#8fa596";
+    Chart.defaults.borderColor = "#26362b";
+    grafico = new Chart($("grafico"), {
+      type: "line",
+      data: { labels: [], datasets: [
+        { label: "Solo (%)", data: [], borderColor: "#3e9bf0", backgroundColor: "#3e9bf0", tension: .3, pointRadius: 0, borderWidth: 2 },
+        { label: "Ar (%)",   data: [], borderColor: "#4cc38a", backgroundColor: "#4cc38a", tension: .3, pointRadius: 0, borderWidth: 2 },
+        { label: "Temp (°C)",data: [], borderColor: "#f5b544", backgroundColor: "#f5b544", tension: .3, pointRadius: 0, borderWidth: 2 }
+      ]},
+      options: { animation: false, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+                 scales: { y: { min: 0, max: 100 } }, plugins: { legend: { labels: { boxWidth: 12 } } } }
+    });
+  }
+
+  // ---------- Atualização da tela ----------
+  function atualizar(d) {
+    $("vSolo").textContent = d.solo;
+    const fmt = v => (v === null || v === undefined || isNaN(v)) ? "--" : Number(v).toFixed(1);
+    $("vTemp").textContent = fmt(d.temp);
+    $("vUmid").textContent = fmt(d.umid);
+    const sensorTxt = d.sensor_ok === false ? '<span class="alert">⚠ Falha no DHT22 (último valor válido)</span>' : "Sensor DHT22";
+    $("txtSensorT").innerHTML = sensorTxt;
+    $("txtSensorU").innerHTML = sensorTxt;
+    $("vLimite").textContent = d.limite + "%";
+    $("markLimite").style.left = d.limite + "%";
+
+    const seco = d.solo < d.limite;
+    $("barSolo").style.width = d.solo + "%";
+    $("barSolo").style.background = seco ? "var(--red)" : "var(--blue)";
+    $("txtSolo").innerHTML = seco ? '<span class="alert">⚠ Solo seco, abaixo do limite</span>'
+                                  : '<span class="good">✓ Solo com umidade adequada</span>';
+
+    $("vBomba").textContent = d.bomba ? "LIGADA 💧" : "DESLIGADA";
+    $("vBomba").className = "state " + (d.bomba ? "on" : "off");
+    $("vModo").textContent = d.modo === "auto" ? "Automático" : "Manual";
+    $("txtUltima").textContent = new Date().toLocaleTimeString("pt-BR");
+    if (d.uptime !== undefined) $("vUptime").textContent = d.uptime + " s";
+
+    if (grafico) {
+      const g = grafico.data;
+      g.labels.push(new Date().toLocaleTimeString("pt-BR"));
+      g.datasets[0].data.push(d.solo);
+      g.datasets[1].data.push(d.umid);
+      g.datasets[2].data.push(d.temp);
+      if (g.labels.length > MAX_PONTOS) { g.labels.shift(); g.datasets.forEach(s => s.data.shift()); }
+      grafico.update();
+    }
+  }
+
+  function setPill(dot, txt, estado, texto) {
+    $(dot).className = "dot" + (estado === true ? " ok" : estado === false ? " bad" : "");
+    $(txt).textContent = texto;
+  }
+
+  // ---------- MQTT ----------
+  let cliente = null;
+  if (!window.mqtt) {
+    setPill("dotBroker", "txtBroker", false, "Sem internet (bibliotecas não carregaram)");
+  } else {
+    cliente = mqtt.connect(URL_BROKER, {
+      clientId: "dash-smarthorta-" + Math.random().toString(16).slice(2, 8),
+      reconnectPeriod: 3000, connectTimeout: 10000, clean: true
+    });
+    cliente.on("connect", () => {
+      setPill("dotBroker", "txtBroker", true, "Broker conectado");
+      cliente.subscribe(BASE + "/dados");
+      cliente.subscribe(BASE + "/status");
+      log("Conectado ao broker HiveMQ");
+    });
+    cliente.on("reconnect", () => setPill("dotBroker", "txtBroker", null, "Reconectando…"));
+    cliente.on("close", () => setPill("dotBroker", "txtBroker", false, "Broker desconectado"));
+    cliente.on("error", e => log("Erro: " + e.message));
+    cliente.on("message", (topico, payload) => {
+      const txt = payload.toString();
+      if (topico.endsWith("/status")) {
+        const on = txt === "online";
+        setPill("dotEsp", "txtEsp", on, "ESP32: " + (on ? "online" : "offline"));
+        log("status → " + txt);
+        return;
+      }
+      try {
+        const d = JSON.parse(txt);
+        setPill("dotEsp", "txtEsp", true, "ESP32: online");
+        atualizar(d);
+        log("dados → " + txt);
+      } catch (e) { log("mensagem inválida: " + txt); }
+    });
+  }
+
+  function enviar(sub, valor) {
+    if (!cliente || !cliente.connected) { log("Não conectado ao broker, comando não enviado"); return; }
+    cliente.publish(BASE + "/" + sub, String(valor));
+    log(`comando enviado → ${sub} = ${valor}`);
+  }
+</script>
+</body>
+</html>
