@@ -1,0 +1,18 @@
+# Credenciais reais - NUNCA versionar (use secrets.example.h como modelo)
+secrets.h
+**/secrets.h
+.env
+
+# Arduino IDE / PlatformIO
+build/
+.pio/
+*.bin
+*.elf
+*.hex
+
+# Editores e sistema
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
